@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+
+    environment {
+        SSH_CRED   = 'port-node'
+        SERVER_IP  = '172.31.29.149'
+        REMOTE_USER = 'ubuntu'
+        WEB_DIR    = '/var/www/html'
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/sakshivshinde13/port-CICD.git'
+            }
+        }
+
+        stage('Deploy to Apache Server') {
+            steps {
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh """
+                        echo "Connecting to server..."
+
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} '
+                            
+                            echo "Installing Apache if not installed..."
+                            if ! command -v apache2 >/dev/null 2>&1; then
+                                sudo apt update -y
+                                sudo apt install apache2 -y
+                            fi
+
+                            echo "Creating web directory..."
+                            sudo mkdir -p ${WEB_DIR}
+
+                            echo "Cleaning old files..."
+                            sudo rm -rf ${WEB_DIR}/*
+
+                        '
+
+                        echo "Uploading new files..."
+                        scp -o StrictHostKeyChecking=no -r index.html css js fonts images ${REMOTE_USER}@${SERVER_IP}:/tmp/
+
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} '
+                            
+                            echo "Deploying files..."
+                            sudo cp -r /tmp/index.html /tmp/css /tmp/js /tmp/fonts /tmp/images ${WEB_DIR}/
+
+                            echo "Setting permissions..."
+                            sudo chown -R www-data:www-data ${WEB_DIR}
+                            sudo chmod -R 755 ${WEB_DIR}
+
+                            echo "Restarting Apache..."
+                            sudo systemctl restart apache2
+
+                            echo "Cleaning temp files..."
+                            sudo rm -rf /tmp/index.html /tmp/css /tmp/js /tmp/fonts /tmp/images
+                        '
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment Successful!"
+        }
+        failure {
+            echo "❌ Deployment Failed!"
+        }
+    }
+}
